@@ -6,11 +6,12 @@ AlSaeed & Omar, 2022): ROC-AUC, PR-AUC, F1, balanced accuracy, sensitivity
 Matthews correlation coefficient (a robust single-number summary for imbalanced
 binary tasks).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List
 
 import json
 import numpy as np
@@ -67,8 +68,9 @@ class Evaluator:
         self.decision_threshold = decision_threshold
 
     # ------------------------------------------------------------------ public
-    def evaluate(self, fold: int, y_true: np.ndarray, y_proba: np.ndarray
-                 ) -> FoldResult:
+    def evaluate(
+        self, fold: int, y_true: np.ndarray, y_proba: np.ndarray
+    ) -> FoldResult:
         y_true = np.asarray(y_true).astype(int).ravel()
         y_proba = np.asarray(y_proba).astype(float).ravel()
         y_pred = (y_proba >= self.decision_threshold).astype(int)
@@ -110,15 +112,25 @@ class Evaluator:
 
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         for r in report.fold_results:
-            axes[0].plot(r.roc["fpr"], r.roc["tpr"],
-                         label=f"fold {r.fold} (AUC={r.metrics['roc_auc']:.3f})")
-            axes[1].plot(r.pr["recall"], r.pr["precision"],
-                         label=f"fold {r.fold} (AP={r.metrics['pr_auc']:.3f})")
+            axes[0].plot(
+                r.roc["fpr"],
+                r.roc["tpr"],
+                label=f"fold {r.fold} (AUC={r.metrics['roc_auc']:.3f})",
+            )
+            axes[1].plot(
+                r.pr["recall"],
+                r.pr["precision"],
+                label=f"fold {r.fold} (AP={r.metrics['pr_auc']:.3f})",
+            )
         axes[0].plot([0, 1], [0, 1], "k--", lw=0.8)
-        axes[0].set(xlabel="False Positive Rate", ylabel="True Positive Rate",
-                    title="ROC — outer CV")
-        axes[1].set(xlabel="Recall", ylabel="Precision",
-                    title="Precision–Recall — outer CV")
+        axes[0].set(
+            xlabel="False Positive Rate",
+            ylabel="True Positive Rate",
+            title="ROC — outer CV",
+        )
+        axes[1].set(
+            xlabel="Recall", ylabel="Precision", title="Precision–Recall — outer CV"
+        )
         for ax in axes:
             ax.legend(loc="best", fontsize=8)
             ax.grid(alpha=0.3)

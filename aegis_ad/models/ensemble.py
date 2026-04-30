@@ -26,6 +26,7 @@ Diogo et al. (2022) *Early diagnosis of Alzheimer's disease using machine
   learning: a multi-diagnostic, generalizable approach*. Alzheimer's Research &
   Therapy 14, 107.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -40,18 +41,21 @@ from sklearn.utils.validation import check_is_fitted
 # unit tests on machines without GPU or CatBoost still succeed.
 try:
     from xgboost import XGBClassifier
+
     _XGB_OK = True
 except Exception:  # noqa: BLE001
     _XGB_OK = False
 
 try:
     from lightgbm import LGBMClassifier
+
     _LGBM_OK = True
 except Exception:  # noqa: BLE001
     _LGBM_OK = False
 
 try:
     from catboost import CatBoostClassifier
+
     _CAT_OK = True
 except Exception:  # noqa: BLE001
     _CAT_OK = False
@@ -119,7 +123,7 @@ class GroupAwareStackingClassifier(BaseEstimator, ClassifierMixin):
                 if n_classes == 2:
                     meta_features[va_idx, j] = proba[:, 1]
                 else:
-                    meta_features[va_idx, j * n_classes:(j + 1) * n_classes] = proba
+                    meta_features[va_idx, j * n_classes : (j + 1) * n_classes] = proba
 
         # ---- 2. Refit each base on the full training partition ------------
         self.fitted_base_: List[Tuple[str, BaseEstimator]] = []
@@ -216,7 +220,9 @@ class AegisEnsemble:
             verbosity=-1,
         )
 
-    def _catboost(self, params: Dict[str, Any], scale_pos_weight: float) -> BaseEstimator:
+    def _catboost(
+        self, params: Dict[str, Any], scale_pos_weight: float
+    ) -> BaseEstimator:
         if not _CAT_OK:
             raise ImportError("catboost is not installed.")
         return CatBoostClassifier(
@@ -265,8 +271,10 @@ class AegisEnsemble:
             bases.append(("tabnet", self._tabnet(params)))
 
         if not bases:
-            raise RuntimeError("No base learners are available — install at least "
-                               "one of xgboost, lightgbm, catboost.")
+            raise RuntimeError(
+                "No base learners are available — install at least "
+                "one of xgboost, lightgbm, catboost."
+            )
 
         meta = LogisticRegression(
             penalty="l2",

@@ -13,15 +13,15 @@ Outer ``StratifiedGroupKFold`` cross-validation drives the entire workflow:
         - SHAP global plots and local subject explanations.
         - Metric tables and ROC / PR curves.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Tuple
 
 import joblib
 import numpy as np
-import pandas as pd
 from imblearn.over_sampling import SMOTE
 from sklearn.model_selection import StratifiedGroupKFold
 
@@ -30,7 +30,7 @@ from .data_loader import DataLoader
 from .evaluation import EvaluationReport, Evaluator
 from .explainability import ShapExplainer
 from .feature_engineer import EngineeredDataset, FeatureEngineer
-from .models.ensemble import AegisEnsemble, GroupAwareStackingClassifier
+from .models.ensemble import AegisEnsemble
 from .preprocessor import build_preprocessor, resolve_feature_names
 from .tuning import OptunaTuner
 
@@ -38,6 +38,7 @@ from .tuning import OptunaTuner
 @dataclass
 class PipelineArtifacts:
     """Filesystem paths of the artifacts emitted by a successful run."""
+
     metrics_csv: Path
     metrics_json: Path
     roc_pr_png: Path
@@ -64,18 +65,21 @@ class AegisPipeline:
         # ------------------------ 1. data + features ----------------------
         frames = self.loader.load()
         ds: EngineeredDataset = self.engineer.build(frames)
-        print(f"[aegis] design matrix: {ds.X.shape},  positives: {ds.y.sum()} / {len(ds.y)}")
+        print(
+            f"[aegis] design matrix: {ds.X.shape},  positives: {ds.y.sum()} / {len(ds.y)}"
+        )
 
         # ------------------------ 2. outer CV -----------------------------
         outer = StratifiedGroupKFold(
-            n_splits=self.cfg.n_splits, shuffle=True,
+            n_splits=self.cfg.n_splits,
+            shuffle=True,
             random_state=self.cfg.random_state,
         )
         report = EvaluationReport()
-        last_feature_names = ds.feature_names  # fall back if every fold fails
 
         for fold_idx, (tr, te) in enumerate(
-                outer.split(ds.X, ds.y, ds.groups), start=1):
+            outer.split(ds.X, ds.y, ds.groups), start=1
+        ):
             print(f"[aegis] ── outer fold {fold_idx}/{self.cfg.n_splits} ──")
             X_tr_df, X_te_df = ds.X.iloc[tr], ds.X.iloc[te]
             y_tr, y_te = ds.y[tr], ds.y[te]
@@ -85,7 +89,6 @@ class AegisPipeline:
             prep, _ = build_preprocessor(ds.numeric_features, ds.categorical_features)
             X_tr = prep.fit_transform(X_tr_df)
             X_te = prep.transform(X_te_df)
-            last_feature_names = resolve_feature_names(prep)
 
             # -- 2.b SMOTE on transformed training fold ---------------------
             X_tr_bal, y_tr_bal, g_tr_bal = self._maybe_smote(X_tr, y_tr, g_tr)
@@ -97,9 +100,7 @@ class AegisPipeline:
             print(f"[aegis] tuned params: {tuned}")
 
             # -- 2.d Build & fit Aegis ensemble -----------------------------
-            ensemble = AegisEnsemble(
-                random_state=self.cfg.random_state
-            ).build(
+            ensemble = AegisEnsemble(random_state=self.cfg.random_state).build(
                 n_splits=self.cfg.inner_n_splits,
                 scale_pos_weight=spw,
                 params=tuned,
@@ -126,9 +127,7 @@ class AegisPipeline:
         tuned_all = self.tuner.tune(
             X_all_bal, y_all_bal, g_all_bal, scale_pos_weight=spw_all
         )
-        final_ensemble = AegisEnsemble(
-            random_state=self.cfg.random_state
-        ).build(
+        final_ensemble = AegisEnsemble(random_state=self.cfg.random_state).build(
             n_splits=self.cfg.inner_n_splits,
             scale_pos_weight=spw_all,
             params=tuned_all,
@@ -160,8 +159,9 @@ class AegisPipeline:
         )
 
     # ============================================================= helpers
-    def _maybe_smote(self, X: np.ndarray, y: np.ndarray, groups: np.ndarray
-                     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _maybe_smote(
+        self, X: np.ndarray, y: np.ndarray, groups: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Apply SMOTE if enabled and the minority class is sufficiently small.
 
         Synthetic samples are appended at the end of the array; the corresponding

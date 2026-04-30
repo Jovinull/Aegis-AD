@@ -4,6 +4,7 @@ A single immutable dataclass governs all pipeline behaviour. Hyperparameter sear
 spaces are kept here rather than dispersed across modules so that experimental
 sweeps can be reproduced from a single configuration object.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -17,6 +17,7 @@ ImportError when the class is instantiated rather than at module import — so t
 rest of the pipeline (which may not need TabNet at hyperparameter-tuning time)
 remains usable.
 """
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -28,6 +29,7 @@ from sklearn.utils.validation import check_is_fitted
 try:  # pragma: no cover — optional dependency
     import torch
     from pytorch_tabnet.tab_model import TabNetClassifier as _TabNetCore
+
     _TABNET_AVAILABLE = True
 except Exception:  # noqa: BLE001
     _TABNET_AVAILABLE = False
@@ -67,8 +69,9 @@ class TabNetSklearnClassifier(BaseEstimator, ClassifierMixin):
         self.verbose = verbose
 
     # --------------------------------------------------------------- fitting
-    def fit(self, X: np.ndarray, y: np.ndarray, eval_set: Optional[Any] = None
-            ) -> "TabNetSklearnClassifier":
+    def fit(
+        self, X: np.ndarray, y: np.ndarray, eval_set: Optional[Any] = None
+    ) -> "TabNetSklearnClassifier":
         if not _TABNET_AVAILABLE:
             raise ImportError(
                 "pytorch_tabnet is required for the deep-tabular branch. "
@@ -79,8 +82,11 @@ class TabNetSklearnClassifier(BaseEstimator, ClassifierMixin):
 
         self.classes_ = np.unique(y)
         self._model = _TabNetCore(
-            n_d=self.n_d, n_a=self.n_a, n_steps=self.n_steps,
-            gamma=self.gamma, lambda_sparse=self.lambda_sparse,
+            n_d=self.n_d,
+            n_a=self.n_a,
+            n_steps=self.n_steps,
+            gamma=self.gamma,
+            lambda_sparse=self.lambda_sparse,
             optimizer_fn=torch.optim.Adam,
             optimizer_params={"lr": self.learning_rate},
             scheduler_fn=torch.optim.lr_scheduler.ReduceLROnPlateau,
@@ -98,12 +104,16 @@ class TabNetSklearnClassifier(BaseEstimator, ClassifierMixin):
             eval_set = self._internal_eval_split(X, y)
 
         self._model.fit(
-            X_train=X, y_train=y,
-            eval_set=eval_set, eval_metric=["auc"],
-            max_epochs=self.max_epochs, patience=self.patience,
+            X_train=X,
+            y_train=y,
+            eval_set=eval_set,
+            eval_metric=["auc"],
+            max_epochs=self.max_epochs,
+            patience=self.patience,
             batch_size=self.batch_size,
             virtual_batch_size=self.virtual_batch_size,
-            num_workers=0, drop_last=False,
+            num_workers=0,
+            drop_last=False,
         )
         return self
 

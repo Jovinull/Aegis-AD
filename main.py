@@ -16,6 +16,7 @@ Outputs are written to ``artifacts/``:
     preprocessor.joblib       Fitted ColumnTransformer
     shap/                     Global + local SHAP explanations
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,10 +31,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-dir", type=Path, default=Path("dataset"))
     p.add_argument("--output-dir", type=Path, default=Path("artifacts"))
     p.add_argument("--n-splits", type=int, default=5)
-    p.add_argument("--trials", type=int, default=40,
-                   help="Total Optuna trials, split across base learners.")
-    p.add_argument("--timeout", type=int, default=600,
-                   help="Total Optuna wall-clock budget per fold (seconds).")
+    p.add_argument(
+        "--trials",
+        type=int,
+        default=40,
+        help="Total Optuna trials, split across base learners.",
+    )
+    p.add_argument(
+        "--timeout",
+        type=int,
+        default=600,
+        help="Total Optuna wall-clock budget per fold (seconds).",
+    )
     p.add_argument("--no-smote", action="store_true")
     p.add_argument("--multiclass", action="store_true")
     p.add_argument("--seed", type=int, default=42)

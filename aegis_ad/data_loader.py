@@ -5,11 +5,11 @@ The two CSV exports use slightly inconsistent column names ("Educ" vs. "EDUC",
 single canonical naming convention so downstream feature engineering can treat
 both cohorts uniformly.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -109,8 +109,18 @@ class DataLoader:
 
     @staticmethod
     def _coerce_numeric(df: pd.DataFrame) -> pd.DataFrame:
-        numeric_cols = ["age", "educ", "ses", "mmse", "cdr",
-                        "etiv", "nwbv", "asf", "mr_delay", "visit"]
+        numeric_cols = [
+            "age",
+            "educ",
+            "ses",
+            "mmse",
+            "cdr",
+            "etiv",
+            "nwbv",
+            "asf",
+            "mr_delay",
+            "visit",
+        ]
         for c in numeric_cols:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce")

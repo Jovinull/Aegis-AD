@@ -11,9 +11,10 @@ The final returned ``params`` dictionary uses the same key prefixes consumed by
 ``AegisEnsemble`` (``xgb_*``, ``lgbm_*``, ``cat_*``, ``tabnet_*``, ``meta_*``),
 so the tuner output can be passed directly into ``AegisEnsemble.build``.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import optuna
@@ -31,11 +32,18 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 # --------------------------------------------------------------------------- #
 # Inner CV scoring utility                                                    #
 # --------------------------------------------------------------------------- #
-def _cv_auc(estimator: BaseEstimator, X: np.ndarray, y: np.ndarray,
-            groups: np.ndarray, n_splits: int, random_state: int) -> float:
+def _cv_auc(
+    estimator: BaseEstimator,
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    n_splits: int,
+    random_state: int,
+) -> float:
     """Group-aware inner CV mean ROC-AUC."""
-    cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True,
-                              random_state=random_state)
+    cv = StratifiedGroupKFold(
+        n_splits=n_splits, shuffle=True, random_state=random_state
+    )
     aucs = []
     for tr, va in cv.split(X, y, groups):
         est = clone(estimator)
@@ -50,6 +58,7 @@ def _cv_auc(estimator: BaseEstimator, X: np.ndarray, y: np.ndarray,
 # --------------------------------------------------------------------------- #
 def _suggest_xgb(trial: optuna.Trial, scale_pos_weight: float) -> Dict[str, Any]:
     from xgboost import XGBClassifier
+
     params = {
         "xgb_n_estimators": trial.suggest_int("xgb_n_estimators", 200, 900, step=100),
         "xgb_max_depth": trial.suggest_int("xgb_max_depth", 3, 8),
@@ -71,13 +80,16 @@ def _suggest_xgb(trial: optuna.Trial, scale_pos_weight: float) -> Dict[str, Any]
         objective="binary:logistic",
         eval_metric="auc",
         tree_method="hist",
-        n_jobs=-1, verbosity=0, random_state=0,
+        n_jobs=-1,
+        verbosity=0,
+        random_state=0,
     )
     return params, estimator  # type: ignore[return-value]
 
 
 def _suggest_lgbm(trial: optuna.Trial, scale_pos_weight: float) -> Dict[str, Any]:
     from lightgbm import LGBMClassifier
+
     params = {
         "lgbm_n_estimators": trial.suggest_int("lgbm_n_estimators", 200, 900, step=100),
         "lgbm_num_leaves": trial.suggest_int("lgbm_num_leaves", 15, 127),
@@ -98,13 +110,16 @@ def _suggest_lgbm(trial: optuna.Trial, scale_pos_weight: float) -> Dict[str, Any
         reg_alpha=params["lgbm_reg_alpha"],
         reg_lambda=params["lgbm_reg_lambda"],
         scale_pos_weight=scale_pos_weight,
-        n_jobs=-1, verbosity=-1, random_state=0,
+        n_jobs=-1,
+        verbosity=-1,
+        random_state=0,
     )
     return params, estimator  # type: ignore[return-value]
 
 
 def _suggest_catboost(trial: optuna.Trial, scale_pos_weight: float) -> Dict[str, Any]:
     from catboost import CatBoostClassifier
+
     params = {
         "cat_iterations": trial.suggest_int("cat_iterations", 200, 900, step=100),
         "cat_depth": trial.suggest_int("cat_depth", 3, 8),
@@ -117,7 +132,8 @@ def _suggest_catboost(trial: optuna.Trial, scale_pos_weight: float) -> Dict[str,
         learning_rate=params["cat_lr"],
         l2_leaf_reg=params["cat_l2"],
         scale_pos_weight=scale_pos_weight,
-        random_state=0, verbose=False,
+        random_state=0,
+        verbose=False,
     )
     return params, estimator  # type: ignore[return-value]
 
@@ -143,13 +159,13 @@ class OptunaTuner:
     ``self.branches`` with a TabNet-specific sampler.
     """
 
-    def __init__(self, cfg: AegisConfig,
-                 branches: Optional[list] = None) -> None:
+    def __init__(self, cfg: AegisConfig, branches: Optional[list] = None) -> None:
         self.cfg = cfg
         self.branches = branches or list(_SUGGEST_REGISTRY.keys())
 
-    def tune(self, X: np.ndarray, y: np.ndarray, groups: np.ndarray,
-             scale_pos_weight: float) -> Dict[str, Any]:
+    def tune(
+        self, X: np.ndarray, y: np.ndarray, groups: np.ndarray, scale_pos_weight: float
+    ) -> Dict[str, Any]:
         merged: Dict[str, Any] = {}
         per_branch_trials = max(self.cfg.n_optuna_trials // len(self.branches), 8)
 
@@ -160,7 +176,10 @@ class OptunaTuner:
             def _objective(trial: optuna.Trial) -> float:
                 params, estimator = _SUGGEST_REGISTRY[branch](trial, scale_pos_weight)
                 return _cv_auc(
-                    estimator, X, y, groups,
+                    estimator,
+                    X,
+                    y,
+                    groups,
                     n_splits=self.cfg.inner_n_splits,
                     random_state=self.cfg.random_state,
                 )

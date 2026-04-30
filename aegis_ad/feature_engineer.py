@@ -29,10 +29,11 @@ splitters used downstream are *group-aware* (StratifiedGroupKFold), guaranteeing
 that no subject contributes rows to both a training and a validation fold —
 the leakage failure mode emphasised by Diogo et al. (2022).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -75,15 +76,18 @@ class FeatureEngineer:
         y = self._build_target(unified["cdr_label"].to_numpy())
         groups = unified["subject_id"].to_numpy()
 
-        feature_cols = [c for c in unified.columns
-                        if c not in {"subject_id", "cdr_label"}]
+        feature_cols = [
+            c for c in unified.columns if c not in {"subject_id", "cdr_label"}
+        ]
         X = unified[feature_cols].copy()
 
         numeric = [c for c in feature_cols if c not in {"sex", "hand", "cohort"}]
         categorical = [c for c in feature_cols if c in {"sex", "hand", "cohort"}]
 
         return EngineeredDataset(
-            X=X, y=y, groups=groups,
+            X=X,
+            y=y,
+            groups=groups,
             numeric_features=numeric,
             categorical_features=categorical,
             feature_names=feature_cols,
@@ -119,7 +123,9 @@ class FeatureEngineer:
                 t = sub["mr_delay"].astype(float).to_numpy()
                 row[f"{marker}_delta"] = self._delta(series)
                 row[f"{marker}_slope"] = self._slope(t, series)
-                row[f"{marker}_max"] = float(np.nanmax(series)) if np.any(~np.isnan(series)) else np.nan
+                row[f"{marker}_max"] = (
+                    float(np.nanmax(series)) if np.any(~np.isnan(series)) else np.nan
+                )
 
             # Label = max-CDR observed during follow-up (clinically: "ever-demented")
             row["cdr_label"] = float(np.nanmax(sub["cdr"].to_numpy()))
@@ -128,22 +134,24 @@ class FeatureEngineer:
 
     # --------------------------------------------------------- cross-sectional
     def _prepare_cross_sectional(self, df: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame({
-            "subject_id": df["subject_id"].to_numpy(),
-            "sex": df["sex"].to_numpy(),
-            "hand": df["hand"].to_numpy(),
-            "age": df["age"].astype(float).to_numpy(),
-            "educ": df["educ"].astype(float).to_numpy(),
-            "ses": df["ses"].astype(float).to_numpy(),
-            "mmse": df["mmse"].astype(float).to_numpy(),
-            "etiv": df["etiv"].astype(float).to_numpy(),
-            "nwbv": df["nwbv"].astype(float).to_numpy(),
-            "asf": df["asf"].astype(float).to_numpy(),
-            "cohort": "cross",
-            "is_longitudinal": 0,
-            "n_visits": 1,
-            "followup_days": 0.0,
-        })
+        out = pd.DataFrame(
+            {
+                "subject_id": df["subject_id"].to_numpy(),
+                "sex": df["sex"].to_numpy(),
+                "hand": df["hand"].to_numpy(),
+                "age": df["age"].astype(float).to_numpy(),
+                "educ": df["educ"].astype(float).to_numpy(),
+                "ses": df["ses"].astype(float).to_numpy(),
+                "mmse": df["mmse"].astype(float).to_numpy(),
+                "etiv": df["etiv"].astype(float).to_numpy(),
+                "nwbv": df["nwbv"].astype(float).to_numpy(),
+                "asf": df["asf"].astype(float).to_numpy(),
+                "cohort": "cross",
+                "is_longitudinal": 0,
+                "n_visits": 1,
+                "followup_days": 0.0,
+            }
+        )
 
         # Δ / slope features are undefined for single-visit subjects; we encode
         # them as 0.0 and rely on the ``is_longitudinal`` indicator to neutralise

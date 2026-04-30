@@ -20,10 +20,11 @@ References
 Lundberg, S.M. et al. (2020) *From local explanations to global understanding
   with explainable AI for trees*. Nature Machine Intelligence 2, 56–67.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Sequence
 
 import numpy as np
 import pandas as pd
@@ -63,15 +64,19 @@ class ShapExplainer:
             if name == "tabnet":
                 continue
             try:
-                explainer = shap.TreeExplainer(est, bg, feature_perturbation="interventional")
+                explainer = shap.TreeExplainer(
+                    est, bg, feature_perturbation="interventional"
+                )
                 shap_values = explainer.shap_values(bg)
                 if isinstance(shap_values, list):  # multi-class returns a list
                     shap_values = shap_values[1]
                 fig = plt.figure(figsize=(9, 6))
                 shap.summary_plot(
-                    shap_values, bg,
+                    shap_values,
+                    bg,
                     feature_names=self.feature_names,
-                    show=False, max_display=20,
+                    show=False,
+                    max_display=20,
                 )
                 plt.title(f"Global SHAP — branch '{name}'")
                 plt.tight_layout()
@@ -80,22 +85,33 @@ class ShapExplainer:
 
                 mean_abs = np.abs(shap_values).mean(axis=0)
                 for fname, score in zip(self.feature_names, mean_abs):
-                    global_records.append({"branch": name, "feature": fname,
-                                           "mean_abs_shap": float(score)})
+                    global_records.append(
+                        {
+                            "branch": name,
+                            "feature": fname,
+                            "mean_abs_shap": float(score),
+                        }
+                    )
             except Exception as exc:  # noqa: BLE001
                 print(f"[shap] tree explanation failed for branch '{name}': {exc}")
 
         if global_records:
-            (pd.DataFrame(global_records)
+            (
+                pd.DataFrame(global_records)
                 .sort_values(["branch", "mean_abs_shap"], ascending=[True, False])
-                .to_csv(output_dir / "shap_global_importance.csv", index=False))
+                .to_csv(output_dir / "shap_global_importance.csv", index=False)
+            )
 
         # -- 2. Ensemble-level KernelExplainer for local rationales -------
         try:
             import shap
+
             focal = self._cap(X_focal, self.cfg.shap_local_examples)
-            f = lambda x: ensemble.predict_proba(x)[:, 1]
-            kernel = shap.KernelExplainer(f, self._cap(bg, 100))
+
+            def _proba_positive(x: np.ndarray) -> np.ndarray:
+                return ensemble.predict_proba(x)[:, 1]
+
+            kernel = shap.KernelExplainer(_proba_positive, self._cap(bg, 100))
             shap_values = kernel.shap_values(focal, nsamples=200, silent=True)
 
             local_df = pd.DataFrame(shap_values, columns=self.feature_names)
@@ -103,6 +119,7 @@ class ShapExplainer:
             local_df.to_csv(output_dir / "shap_local_examples.csv", index=False)
 
             import matplotlib.pyplot as plt
+
             for i in range(len(focal)):
                 contrib = shap_values[i]
                 order = np.argsort(np.abs(contrib))[::-1][:12]
@@ -111,8 +128,10 @@ class ShapExplainer:
                     [self.feature_names[j] for j in order][::-1],
                     [contrib[j] for j in order][::-1],
                 )
-                ax.set_title(f"Local SHAP — subject {i}  "
-                             f"(P(AD) = {ensemble.predict_proba(focal[i:i+1])[0,1]:.2f})")
+                ax.set_title(
+                    f"Local SHAP — subject {i}  "
+                    f"(P(AD) = {ensemble.predict_proba(focal[i:i+1])[0,1]:.2f})"
+                )
                 ax.axvline(0, color="k", lw=0.5)
                 plt.tight_layout()
                 plt.savefig(output_dir / f"shap_local_subject_{i}.png", dpi=150)

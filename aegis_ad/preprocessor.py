@@ -21,11 +21,11 @@ volumetric measures (``etiv``, ``nwbv``) and longitudinal slopes have heavy
 tails that would compromise z-score statistics, and because TabNet and
 gradient boosters benefit from outlier-robust scaling at the input layer.
 """
+
 from __future__ import annotations
 
 from typing import List, Tuple
 
-import numpy as np
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import KNNImputer
 from sklearn.pipeline import Pipeline
@@ -54,15 +54,23 @@ def build_preprocessor(
     transformer, output_feature_names
         The transformer and the resolved output feature names (useful for SHAP).
     """
-    numeric_pipeline = Pipeline(steps=[
-        ("imputer", KNNImputer(n_neighbors=knn_neighbors, weights="distance")),
-        ("scaler", RobustScaler()),
-    ])
+    numeric_pipeline = Pipeline(
+        steps=[
+            ("imputer", KNNImputer(n_neighbors=knn_neighbors, weights="distance")),
+            ("scaler", RobustScaler()),
+        ]
+    )
 
-    categorical_pipeline = Pipeline(steps=[
-        ("encoder", OneHotEncoder(handle_unknown="ignore",
-                                  sparse_output=False, drop="if_binary")),
-    ])
+    categorical_pipeline = Pipeline(
+        steps=[
+            (
+                "encoder",
+                OneHotEncoder(
+                    handle_unknown="ignore", sparse_output=False, drop="if_binary"
+                ),
+            ),
+        ]
+    )
 
     transformer = ColumnTransformer(
         transformers=[
