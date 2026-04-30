@@ -1,0 +1,155 @@
+% =============================================================================
+%  Aegis-AD — Materials and Methods
+%  Master's thesis: "Aegis-AD: Automated Early Grading and Identification
+%                    System for Alzheimer's Disease"
+%
+%  This file is intended to be \input-ed from the master LaTeX document.
+%  Required packages (load in the preamble of the master file):
+%     \usepackage{amsmath, amssymb, amsthm}
+%     \usepackage[utf8]{inputenc}
+%     \usepackage[T1]{fontenc}
+%     \usepackage{hyperref}
+%
+%  Bibliography keys referenced (provide in references.bib):
+%     marcus2007oasis, marcus2010oasis2, morris1993cdr, moradi2015,
+%     battineni2021, battineni2020, salvatore2015, diogo2022, frisoni2010,
+%     desikan2009, scikitlearn, chawla2002smote, wolpert1992, chen2016xgboost,
+%     ke2017lightgbm, prokhorenkova2018catboost, arik2021tabnet, bergstra2011tpe,
+%     akiba2019optuna, vapnik1998, matthews1975, lundberg2020trees, shapley1953
+% =============================================================================
+
+\section{Materials and Methods}
+\label{sec:methods}
+
+This section describes the data, the feature-construction protocol, the cross-validation regime, and the heterogeneous stacking architecture that together comprise the proposed \textbf{Aegis-AD} system. Particular emphasis is placed on the design decisions whose violation would compromise the statistical validity of any reported metric --- most notably, the strict subject-level isolation enforced throughout cross-validation and the causal construction of longitudinal dynamics features.
+
+\subsection{Datasets and Cohort Harmonisation}
+\label{subsec:data}
+
+We employ the two publicly available Open Access Series of Imaging Studies (OASIS) corpora: \textbf{OASIS-1}~\cite{marcus2007oasis}, a cross-sectional cohort of 436 subjects each contributing a single T1-weighted acquisition, and \textbf{OASIS-2}~\cite{marcus2010oasis2}, a longitudinal cohort of 150 subjects acquired at two or three timepoints separated by 180--1{,}600 days. Both releases provide a tabular export comprising demographic descriptors (sex, age, handedness, years of education, socio-economic status), a cognitive measure (Mini-Mental State Examination, MMSE), and morphometric quantities derived from the structural MRI: estimated total intracranial volume (eTIV), normalised whole-brain volume (nWBV), and atlas-scaling factor (ASF). The clinical label is the Clinical Dementia Rating (CDR)~\cite{morris1993cdr}.
+
+The two exports use slightly inconsistent column conventions (e.g., \texttt{Educ} vs. \texttt{EDUC}; \texttt{ID} vs. \texttt{Subject ID}). These are programmatically harmonised to a single canonical schema, and OASIS-1 records are augmented with synthetic placeholders ($\mathrm{visit}=1$, $\mathrm{MR\,Delay}=0$) so that downstream operators can treat both cohorts uniformly. Subjects whose CDR is missing are excluded. After the feature-engineering step described in Section~\ref{subsec:feature_eng}, the unified design matrix contains exactly one row per subject; the resulting cohort comprises $N \approx 385$ unique subjects with a positive-class fraction of approximately $47\%$.
+
+\subsection{Outcome Definition and Label Encoding}
+\label{subsec:outcome}
+
+For a longitudinal subject $s$ with visits $\mathcal{V}_s = \{v_1, v_2, \ldots, v_{n_s}\}$ ordered by acquisition delay, the per-subject label is defined as
+\begin{equation}
+y_s \;=\; \mathbf{1}\!\left[\, \max_{v \in \mathcal{V}_s} \mathrm{CDR}_s^{(v)} \;\geq\; \tau \,\right],
+\label{eq:label}
+\end{equation}
+with $\tau = 0.5$, the conventional cut-point delineating no impairment ($\mathrm{CDR}=0$) from very mild dementia or worse~\cite{morris1993cdr}. Equation~\eqref{eq:label} encodes the clinically meaningful question \emph{``did the subject ever progress to dementia within the observed follow-up window?''} and is preferred over per-visit labelling because it eliminates the ambiguity introduced by transient CDR fluctuations. For OASIS-1, where $|\mathcal{V}_s|=1$, equation~\eqref{eq:label} reduces to a thresholding of the single observed CDR.
+
+\subsection{Feature Engineering: Static, Volumetric, and Longitudinal Dynamics}
+\label{subsec:feature_eng}
+
+Each subject is represented as a single feature vector $\mathbf{x}_s \in \mathbb{R}^{d}$ obtained by concatenating three blocks: \emph{static descriptors} (sex, handedness, age-at-baseline, education, socio-economic status); \emph{baseline morphometrics} ($\mathrm{nWBV}^{(1)}_s$, $\mathrm{eTIV}^{(1)}_s$, $\mathrm{ASF}^{(1)}_s$, $\mathrm{MMSE}^{(1)}_s$); and \emph{longitudinal dynamics}. The latter block constitutes the principal methodological contribution of this work and is constructed as follows.
+
+For each clinical or morphometric marker $m \in \mathcal{M} = \{\mathrm{nWBV},\, \mathrm{MMSE},\, \mathrm{eTIV},\, \mathrm{ASF}\}$ and each longitudinal subject $s$, three derived quantities are computed. The first-difference (\textbf{$\Delta$-feature}) captures the net change between the first and last observed visits,
+\begin{equation}
+\Delta_{m,s} \;=\; m^{(n_s)}_s \,-\, m^{(1)}_s.
+\end{equation}
+The \textbf{ordinary-least-squares slope} captures the average rate of change against the acquisition delay $t$ (in days):
+\begin{equation}
+\hat{\beta}_{m,s} \;=\; \frac{\mathrm{Cov}\!\left(t,\, m_s\right)}{\mathrm{Var}\!\left(t\right)} \;=\; \frac{\sum_{v=1}^{n_s} \bigl(t^{(v)} - \bar{t}\bigr)\,\bigl(m_s^{(v)} - \bar{m}_s\bigr)}{\sum_{v=1}^{n_s} \bigl(t^{(v)} - \bar{t}\bigr)^{2}},
+\label{eq:slope}
+\end{equation}
+with the convention $\hat{\beta}_{m,s} \equiv 0$ when $n_s < 2$ or when $\mathrm{Var}(t) = 0$. The third quantity $m^{\max}_s = \max_{v} m_s^{(v)}$ records the supremum observed over the trajectory. Together with the visit count $n_s$ and the total follow-up duration $T_s = \max_v t^{(v)}$, these summarise the temporal envelope of the disease signal.
+
+Three design points warrant explicit justification.
+
+\textbf{(i) Causal computation.} Equation~\eqref{eq:slope} is a pure function of the visits supplied; for any prefix $1, \ldots, k \le n_s$, the slope $\hat{\beta}_{m,s}^{(1:k)}$ is independent of $m_s^{(k+1)}, \ldots, m_s^{(n_s)}$. This causal property is asserted as a regression test in the project's continuous-integration suite. Without it, a subtle form of \emph{temporal leakage} would obtain whereby a subject's early-visit features would silently encode information about visits acquired \emph{after} the prediction horizon --- a failure mode flagged in the conversion-prediction literature~\cite{moradi2015}.
+
+\textbf{(ii) Cross-sectional admissibility.} For OASIS-1 subjects ($n_s = 1$), the $\Delta$- and slope features are mathematically undefined; we encode them as zero and append a binary indicator $\mathbf{1}_{\mathrm{long}}(s) \in \{0,1\}$ stating whether the subject contributed multiple visits. The downstream non-linear learners (Section~\ref{subsec:ensemble}) can therefore route attention through learned interactions of the form ``slope is informative if and only if $\mathbf{1}_{\mathrm{long}} = 1$'', a pattern reminiscent of the late-fusion multimodal designs of Battineni \emph{et al.}~\cite{battineni2021}.
+
+\textbf{(iii) Target-leakage exclusion.} CDR and any of its temporal derivatives ($\Delta_{\mathrm{CDR}}$, $\hat{\beta}_{\mathrm{CDR}}$, $\mathrm{CDR}^{\max}$) are explicitly \emph{excluded} from $\mathbf{x}_s$, because the label of equation~\eqref{eq:label} is itself a thresholded function of CDR. Inclusion would constitute outright target leakage and trivialise the classification task.
+
+\subsection{Cross-Validation Protocol: Strict Subject-Level Isolation}
+\label{subsec:cv}
+
+Let $\mathcal{S} = \{s_1, \ldots, s_N\}$ denote the set of subjects and $K = 5$ the number of outer folds. We define a partition of $\mathcal{S}$ into mutually exclusive validation strata $\bigl\{\mathcal{S}_\mathrm{val}^{(1)}, \ldots, \mathcal{S}_\mathrm{val}^{(K)}\bigr\}$ obtained by \textbf{StratifiedGroupKFold}~\cite{scikitlearn} with respect to the binary outcome of equation~\eqref{eq:label}, satisfying simultaneously
+\begin{align}
+\bigcup_{k=1}^{K} \mathcal{S}_\mathrm{val}^{(k)} \;&=\; \mathcal{S}, \label{eq:cover}\\
+\mathcal{S}_\mathrm{val}^{(k)} \,\cap\, \mathcal{S}_\mathrm{val}^{(k')} \;&=\; \varnothing \quad \forall\, k \ne k', \label{eq:disjoint}\\
+\mathcal{S}_\mathrm{train}^{(k)} \,\cap\, \mathcal{S}_\mathrm{val}^{(k)} \;&=\; \varnothing \quad \forall\, k. \label{eq:isolation}
+\end{align}
+
+Equation~\eqref{eq:isolation} is the cardinal constraint of any honest longitudinal AD benchmark. A naive K-fold splitter operating on \emph{rows} rather than \emph{subjects} would, for each subject $s$ with $n_s \ge 2$ visits, place a strict subset of $\mathcal{V}_s$ into training and the complementary subset into validation; the resulting evaluation would conflate the learning task with a trivial ``identify-this-subject'' subtask, since the model would have already observed the subject's intracranial-volume signature and demographic block during training. Diogo \emph{et al.}~\cite{diogo2022} report that this single methodological flaw can inflate held-out ROC-AUC by 0.05--0.10 absolute on OASIS-class cohorts --- an interval sufficient to alter the qualitative conclusions of an entire study. Because the present design produces \emph{one row per subject} (Section~\ref{subsec:feature_eng}), equations~\eqref{eq:cover}--\eqref{eq:isolation} are not merely sufficient but \emph{necessary and sufficient} for subject-level isolation. Their satisfaction is asserted programmatically in the suite \texttt{tests/test\_no\_leakage.py}.
+
+A nested cross-validation regime is employed: hyperparameter tuning (Section~\ref{subsec:tuning}) operates on an inner $K' = 3$ StratifiedGroupKFold drawn exclusively from $\mathcal{S}_\mathrm{train}^{(k)}$, while the meta-feature generation of the stacking architecture (Section~\ref{subsec:ensemble}) employs an additional group-aware splitter, all under independent random seeds.
+
+\subsection{Within-Fold Pre-Processing}
+\label{subsec:preproc}
+
+For every outer training partition $\mathcal{S}_\mathrm{train}^{(k)}$, a fresh \texttt{ColumnTransformer} is instantiated comprising: (a) a \textbf{$k$-Nearest-Neighbours imputer} with $k_{\mathrm{imp}} = 5$ on the numeric block, weighted inversely by the Euclidean distance to the nearest non-missing donors; (b) a \textbf{RobustScaler} that centres each numeric feature on its training-fold median and scales by the inter-quartile range,
+\begin{equation}
+\tilde{x}_{s,j} \;=\; \frac{x_{s,j} \;-\; \mathrm{median}_{\mathcal{S}_\mathrm{train}^{(k)}}\!\left( x_{\cdot,j} \right)}{\mathrm{IQR}_{\mathcal{S}_\mathrm{train}^{(k)}}\!\left( x_{\cdot,j} \right)},
+\label{eq:robust_scale}
+\end{equation}
+and (c) a one-hot encoder for the categorical block (sex, handedness, cohort) with \texttt{handle\_unknown="ignore"} so that rare strata absent from a particular training fold do not break inference. RobustScaler is preferred to z-scoring because morphometric quantities and longitudinal slopes exhibit heavy tails for which the sample variance is a poor scale estimator.
+
+Critically, every component of equation~\eqref{eq:robust_scale} --- and analogously the imputer's neighbour graph --- is computed exclusively from $\mathcal{S}_\mathrm{train}^{(k)}$. The held-out fold $\mathcal{S}_\mathrm{val}^{(k)}$ is transformed using the fold-specific statistics but never contributes to their estimation. This guarantee is itself encoded as a continuous-integration invariant: a regression test asserts that the RobustScaler centres $\mathrm{median}_{\mathcal{S}_\mathrm{train}^{(k)}}$ differ across at least one pair of folds, ruling out the silent reuse of global statistics.
+
+\subsection{Class Imbalance Mitigation}
+\label{subsec:imbalance}
+
+Within each outer training partition, after pre-processing, the \textbf{Synthetic Minority Over-sampling Technique} (SMOTE)~\cite{chawla2002smote} is optionally applied to the minority class with $k_{\mathrm{SMOTE}} = 3$ neighbours. Each synthesised sample is allocated a reserved group identifier of the form \texttt{\_synth\_$i$}, $i \in \mathbb{N}$, that cannot collide with any real OASIS Subject ID. This identifier-namespacing ensures that synthetic samples are visible to the inner group-aware splitter as singleton groups but cannot, by construction, appear in the outer validation fold $\mathcal{S}_\mathrm{val}^{(k)}$, preserving the integrity of the reported metrics.
+
+\subsection{The Aegis Heterogeneous Stacking Ensemble}
+\label{subsec:ensemble}
+
+The classifier proper is a two-tier stacked generalisation~\cite{wolpert1992} that combines two paradigmatically distinct families of base learners.
+
+\textbf{Branch~A --- Gradient-Boosted Decision Trees.} Three boosters with intentionally divergent inductive biases are deployed: \textbf{XGBoost}~\cite{chen2016xgboost} with histogram splitting and L1/L2 leaf regularisation; \textbf{LightGBM}~\cite{ke2017lightgbm} with leaf-wise growth and gradient-based one-sided sampling; and \textbf{CatBoost}~\cite{prokhorenkova2018catboost} with ordered boosting and oblivious symmetric trees. Class imbalance is additionally addressed through the \texttt{scale\_pos\_weight} hyperparameter, set to $|\mathcal{S}_\mathrm{train}^{(k),0}|\big/|\mathcal{S}_\mathrm{train}^{(k),1}|$.
+
+\textbf{Branch~B --- Deep Tabular Network.} A \textbf{TabNet}~\cite{arik2021tabnet} classifier provides attention-weighted dense representations through a sequence of decision steps, each of which selects a sparse subset of features via a learnable Sparsemax mask. TabNet's inductive bias is intentionally complementary to that of decision trees: where a tree partitions space along axis-aligned hyperplanes, TabNet learns smooth, attention-modulated feature combinations, and the resulting OOF predictions are empirically only weakly correlated with those of the boosters --- a desirable property for ensemble diversity.
+
+\textbf{Group-Aware Out-of-Fold Meta-Features.} Let $\hat{f}_j$ denote base learner $j \in \{1, \ldots, J\}$ with $J = 4$. For each fold-pair $\bigl(\mathcal{S}_\mathrm{train}^{(k')},\, \mathcal{S}_\mathrm{val}^{(k')}\bigr)$ of an internal $K'$-fold StratifiedGroupKFold split of $\mathcal{S}_\mathrm{train}^{(k)}$, base learner $j$ is fit on $\mathcal{S}_\mathrm{train}^{(k')}$ and produces probabilistic predictions on $\mathcal{S}_\mathrm{val}^{(k')}$. The resulting OOF prediction matrix
+\begin{equation}
+\mathbf{Z} \;=\; \bigl[\, z_{i,j} \,\bigr]_{i \in \mathcal{S}_\mathrm{train}^{(k)},\, j \in \{1,\ldots,J\}}, \qquad z_{i,j} \;=\; \hat{f}_j^{\,(-k'(i))}\bigl(\mathbf{x}_i\bigr),
+\label{eq:oof}
+\end{equation}
+is the input to the meta-learner. The notation $-k'(i)$ denotes the inner training fold that does \emph{not} contain subject $i$. Note that the standard \texttt{StackingClassifier} of scikit-learn does not propagate the \texttt{groups} argument to its internal CV; we therefore implement \texttt{GroupAwareStackingClassifier}, which employs an explicit group-respecting splitter for equation~\eqref{eq:oof}, eliminating a subtle leakage that would otherwise contaminate the meta-feature distribution.
+
+\textbf{Meta-Learner.} An L2-regularised binary logistic regression aggregates the OOF predictions:
+\begin{equation}
+\hat{p}\!\left(y_s = 1 \mid \mathbf{x}_s\right) \;=\; \sigma\!\left(\, \mathbf{w}^{\!\top}\, \mathbf{z}(\mathbf{x}_s) \,+\, b \,\right),
+\label{eq:meta}
+\end{equation}
+where $\sigma(\cdot)$ denotes the logistic function and $\mathbf{z}(\mathbf{x}_s) = \bigl(\hat{f}_1(\mathbf{x}_s), \ldots, \hat{f}_J(\mathbf{x}_s)\bigr)^{\!\top}$ are the predictions of the base learners refit on the entire outer training partition. The parameters $(\mathbf{w}, b)$ are obtained by minimising the regularised negative log-likelihood
+\begin{equation}
+\min_{\mathbf{w},\, b}\; -\!\!\sum_{s \in \mathcal{S}_\mathrm{train}^{(k)}}\!\!\Bigl[\, y_s \log \hat{p}_s \,+\, (1 - y_s) \log (1 - \hat{p}_s) \,\Bigr] \;+\; \frac{1}{2C}\,\|\mathbf{w}\|_2^{\,2},
+\label{eq:meta_loss}
+\end{equation}
+with $C$ the inverse-regularisation strength tuned on the inner CV. The choice of an L2-penalised linear combiner is principled: it bounds the effective Vapnik--Chervonenkis dimension of the ensemble~\cite{vapnik1998} and is therefore appropriate for the small ($N \approx 385$) cohort, in line with the parsimony recommendation that consistently emerges from comparative AD-classification studies~\cite{battineni2020,salvatore2015}.
+
+\subsection{Hyperparameter Optimisation}
+\label{subsec:tuning}
+
+For each gradient-boosting branch, hyperparameters are tuned with the Tree-structured Parzen Estimator (TPE)~\cite{bergstra2011tpe} as implemented in Optuna~\cite{akiba2019optuna}. The objective is the mean ROC-AUC over the inner $K'$-fold StratifiedGroupKFold restricted to $\mathcal{S}_\mathrm{train}^{(k)}$, evaluated with closed-loop early termination via Optuna's median pruner. Representative search spaces include $n_{\mathrm{estimators}} \in [200,\,900]$, $\mathrm{depth} \in [3,\,8]$, $\eta \in [10^{-3},\,2 \times 10^{-1}]$ on a logarithmic grid, and L1/L2 leaf regularisations on $[10^{-3},\,5]$. The TabNet architecture is trained at its published defaults to limit the optimisation budget; ablations on its sparsity coefficient $\lambda_{\mathrm{sparse}}$ and decision-step count $N_{\mathrm{steps}}$ are deferred to Section~\ref{sec:discussion}.
+
+\subsection{Evaluation Metrics}
+\label{subsec:metrics}
+
+For each outer fold $k$, predictions on $\mathcal{S}_\mathrm{val}^{(k)}$ are summarised by the receiver-operating-characteristic area under the curve (\textbf{ROC-AUC}), the area under the precision--recall curve (\textbf{PR-AUC}), the $F_1$-score, balanced accuracy, sensitivity (recall on the positive class), and specificity (recall on the negative class), defined as
+\begin{equation}
+\mathrm{Sensitivity} \;=\; \frac{\mathrm{TP}}{\mathrm{TP}+\mathrm{FN}}, \qquad \mathrm{Specificity} \;=\; \frac{\mathrm{TN}}{\mathrm{TN}+\mathrm{FP}},
+\end{equation}
+together with the Matthews correlation coefficient (\textbf{MCC})~\cite{matthews1975}, a balanced single-number summary robust to class imbalance. Per-fold metrics are aggregated as $\mu \pm \sigma$, with $\sigma$ the unbiased sample standard deviation across the $K$ outer folds.
+
+\subsection{Explainable AI: Shapley-Value Attributions}
+\label{subsec:xai}
+
+Global and local interpretability is provided through Shapley-value decomposition~\cite{lundberg2020trees}. For the gradient-boosting branches, exact tree-aware Shapley values $\phi_{i,s}$ are computed for each feature $i$ and subject $s$ via the polynomial-time \textbf{TreeExplainer} algorithm. For the stacked model as a whole, a model-agnostic \textbf{KernelExplainer} is used over a sub-sampled background set $\mathcal{B} \subseteq \mathcal{S}_\mathrm{train}^{(k)}$ of size $|\mathcal{B}| \le 200$. The Shapley value of feature $i$ at input $\mathbf{x}$, with respect to a value function $v$, is the unique allocation satisfying the efficiency, symmetry, dummy, and additivity axioms~\cite{shapley1953}:
+\begin{equation}
+\phi_i(\mathbf{x}) \;=\; \!\!\sum_{S \subseteq F \setminus \{i\}}\!\! \frac{|S|!\,(|F| - |S| - 1)!}{|F|!}\,\Bigl[\, v\bigl(S \cup \{i\}\bigr) \,-\, v(S) \,\Bigr],
+\label{eq:shapley}
+\end{equation}
+where $F$ denotes the full feature index set. We report (i) global mean-absolute-Shapley summaries across the held-out cohort to verify that the model relies on \textbf{nWBV}, \textbf{MMSE}, and their longitudinal slopes --- the clinically established correlates of medial-temporal atrophy and cognitive decline~\cite{frisoni2010,desikan2009} --- and (ii) per-subject local explanations for representative correctly- and incorrectly-classified individuals.
+
+\subsection{Reproducibility, Software Stack, and Continuous Validation}
+\label{subsec:repro}
+
+The full pipeline is implemented in Python~3.11 using \texttt{scikit-learn}~1.4, \texttt{xgboost}~2.0, \texttt{lightgbm}~4.0, \texttt{catboost}~1.2, \texttt{pytorch-tabnet}~4.1, \texttt{imbalanced-learn}~0.12, \texttt{optuna}~3.5, and \texttt{shap}~0.44, on top of \texttt{pandas}~2.x and \texttt{numpy}~1.24+. A single global random seed governs all stochastic components, rendering experiments reproducible to numerical precision on a fixed software environment.
+
+The leakage-prevention invariants articulated in Sections~\ref{subsec:feature_eng}--\ref{subsec:imbalance} are continuously validated by a dedicated \texttt{pytest} suite (\texttt{tests/test\_no\_leakage.py}) which executes within the project's GitHub Actions pipeline on every push and pull request, across a Python~3.10/3.11 matrix. Specifically, the suite asserts: (i)~equations~\eqref{eq:cover}--\eqref{eq:isolation} for every fold; (ii)~the causal property of equation~\eqref{eq:slope}; (iii)~the cross-subject independence of feature engineering; (iv)~the per-fold refit of equation~\eqref{eq:robust_scale}; and (v)~the SMOTE namespacing constraint of Section~\ref{subsec:imbalance}. Any commit that violates one of these invariants is automatically rejected at the CI gate, providing a continuously enforced contract between the codebase and the scientific claims advanced in this work.
